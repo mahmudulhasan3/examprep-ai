@@ -1,20 +1,13 @@
 from pwdlib import PasswordHash
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+from app.core.env_utils import get_env_variable
 import jwt
 import os
 
 load_dotenv()
 
 ph = PasswordHash.recommended()
-
-
-def get_env_variable(name: str):
-    value = os.getenv(name)
-    if not value:
-        raise ValueError(f"{name} is not set in .env file")
-    return value
-
 
 SECRET_KEY = get_env_variable("SECRET_KEY")
 
