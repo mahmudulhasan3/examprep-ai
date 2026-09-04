@@ -2,8 +2,9 @@ from pwdlib import PasswordHash
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from app.core.env_utils import get_env_variable
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 import jwt
-import os
 
 load_dotenv()
 
@@ -15,6 +16,7 @@ ALGORITHM = get_env_variable("ALGORITHM")
 
 ACCESS_TOKEN_EXPIRE_MINUTES = int(get_env_variable("ACCESS_TOKEN_EXPIRE_MINUTES"))
 
+oauth2_token = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 def hash_password(plain_password: str) -> str:
     return ph.hash(plain_password)
@@ -36,3 +38,11 @@ def decode_token_access(token: str):
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except jwt.PyJWTError:
         return None
+
+
+def get_current_user(token: str = Depends(oauth2_token)):
+    payload = decode_token_access(token)
+    if payload is None:
+        raise HTTPException(status_code= 401, detail= "Invalid or expire token")
+    user_id = payload.get("user_id")
+    return user_id
