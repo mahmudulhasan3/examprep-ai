@@ -13,10 +13,10 @@ from sqlalchemy.orm import Session
 from app.db.models import ChatSession, ChatMessage
 import uuid
 
-router = APIRouter(prefix="/chat", tags=["Guest Chat"])
+router = APIRouter(prefix="/chat")
 
 
-@router.post("/guest", response_model=ChatResponse)
+@router.post("/guest", response_model=ChatResponse, tags=["Guest Chat"])
 def guest(request: ChatRequest):
 
     if request.session_id:
@@ -38,7 +38,9 @@ def guest(request: ChatRequest):
     return {"session_id": session_id, "reply": reply}
 
 
-@router.post("/authenticated", response_model=AuthChatResponse)
+@router.post(
+    "/authenticated", response_model=AuthChatResponse, tags=["Authenticated Chat"]
+)
 def authenticated_chat(
     request: AuthChatRequest,
     db: Session = Depends(get_db),
