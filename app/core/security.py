@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from app.core.env_utils import get_env_variable
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
 
 load_dotenv()
@@ -16,7 +16,8 @@ ALGORITHM = get_env_variable("ALGORITHM")
 
 ACCESS_TOKEN_EXPIRE_MINUTES = int(get_env_variable("ACCESS_TOKEN_EXPIRE_MINUTES"))
 
-oauth2_token = OAuth2PasswordBearer(tokenUrl="auth/login")
+http_bearer = HTTPBearer()
+
 
 def hash_password(plain_password: str) -> str:
     return ph.hash(plain_password)
@@ -40,9 +41,10 @@ def decode_token_access(token: str):
         return None
 
 
-def get_current_user(token: str = Depends(oauth2_token)):
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(http_bearer)):
+    token = credentials.credentials
     payload = decode_token_access(token)
     if payload is None:
-        raise HTTPException(status_code= 401, detail= "Invalid or expire token")
+        raise HTTPException(status_code=401, detail="Invalid or expire token")
     user_id = payload.get("user_id")
     return user_id
