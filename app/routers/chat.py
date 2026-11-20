@@ -4,6 +4,8 @@ from app.schemas.chat import (
     ChatResponse,
     AuthChatRequest,
     AuthChatResponse,
+    SessionSummary,
+    SessionDetail,
 )
 from app.core.memory_store import guest_sessions
 from app.core.gemini_client import generate_chat_response
@@ -29,7 +31,13 @@ def guest(request: ChatRequest):
 
     history.append({"role": "user", "content": request.message})
 
-    reply = generate_chat_response(history)
+    try:
+        reply = generate_chat_response(history)
+    except Exception:
+        history.pop()  
+        raise HTTPException(
+            status_code=502, detail="AI service is unavailable. Try again."
+        )
 
     history.append({"role": "assistant", "content": reply})
 
@@ -58,32 +66,62 @@ def authenticated_chat(
         if session is None:
             raise HTTPException(status_code=404, detail="Chat session not found")
     else:
-        session = ChatSession(user_id=user_id)
+        session = ChatSession(user_id=user_id, title=request.message.strip()[:50])
         db.add(session)
-        db.commit()
-        db.refresh(session)
+        db.flush()
 
     history = []
     for msg in session.messages:
         history.append({"role": msg.role, "content": msg.content})
 
-    user_message = ChatMessage(
-        chat_session_id=session.id,
-        role="user",
-        content=request.message,
-    )
-    db.add(user_message)
-    db.commit()
-
     history.append({"role": "user", "content": request.message})
-    reply = generate_chat_response(history)
 
-    ai_message = ChatMessage(
-        chat_session_id=session.id,
-        role="assistant",
-        content=reply,
+    try:
+        reply = generate_chat_response(history)
+    except Exception:
+        raise HTTPException(
+            status_code=502, detail="AI service is unavailable. Try again."
+        )
+
+    db.add(
+        ChatMessage(chat_session_id=session.id, role="user", content=request.message)
     )
-    db.add(ai_message)
+    db.add(ChatMessage(chat_session_id=session.id, role="assistant", content=reply))
     db.commit()
 
     return {"session_id": session.id, "reply": reply}
+
+
+@router.get(
+    "/sessions", response_model=list[SessionSummary], tags=["Authenticated Chat"]
+)
+def list_sessions(
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    return (
+        db.query(ChatSession)
+        .filter(ChatSession.user_id == user_id)
+        .order_by(ChatSession.id.desc())
+        .all()
+    )
+
+
+@router.get(
+    "/sessions/{session_id}",
+    response_model=SessionDetail,
+    tags=["Authenticated Chat"],
+)
+def get_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user),
+):
+    session = (
+        db.query(ChatSession)
+        .filter(ChatSession.id == session_id, ChatSession.user_id == user_id)
+        .first()
+    )
+    if session is None:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    return session
