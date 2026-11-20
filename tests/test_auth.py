@@ -56,3 +56,13 @@ def test_login_nonexistent_user(client):
         json={"email": "nobody@example.com", "password": "testpass123"},
     )
     assert response.status_code == 404
+
+
+def test_token_expiry_is_about_30_minutes():
+    import time, jwt
+    from app.core.security import create_token_access, SECRET_KEY, ALGORITHM
+
+    token = create_token_access({"user_id": 1})
+    exp = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])["exp"]
+    minutes = (exp - time.time()) / 60
+    assert 29 <= minutes <= 31
