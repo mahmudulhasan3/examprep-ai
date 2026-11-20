@@ -3,6 +3,7 @@ from sqlalchemy import String, func, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.database import Base
 
+
 class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -29,7 +30,9 @@ class ChatSession(Base):
         server_default=func.now(), onupdate=func.now()
     )
     user: Mapped["User"] = relationship(back_populates="chat_sessions")
-    messages: Mapped[list["ChatMessage"]] = relationship(back_populates="chat_session")
+    messages: Mapped[list["ChatMessage"]] = relationship(
+        back_populates="chat_session", order_by="ChatMessage.id"
+    )
 
 
 class ChatMessage(Base):
