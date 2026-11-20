@@ -42,3 +42,10 @@ def clean_tables():
     with engine.begin() as connection:
         for table in reversed(Base.metadata.sorted_tables):
             connection.execute(table.delete())
+
+
+@pytest.fixture(autouse=True)
+def mock_gemini(monkeypatch):
+    monkeypatch.setattr(
+        "app.routers.chat.generate_chat_response", lambda history: "mock reply"
+    )
