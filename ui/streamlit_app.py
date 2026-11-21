@@ -1,4 +1,7 @@
+import base64
+import html
 import os
+import re
 
 import requests
 import streamlit as st
@@ -8,10 +11,15 @@ TIMEOUT = 90  # Gemini can take a while to reply
 
 st.set_page_config(page_title="ExamPrep AI", page_icon="📚", layout="wide")
 
-# The user's own messages sit on the right, the AI's on the left.
+# Layout tweaks: user messages on the right and AI messages on the left (no avatar
+# icons), plain history items without background or border, and a profile card.
 st.markdown(
     """
     <style>
+    [data-testid="stChatMessageAvatarUser"],
+    [data-testid="stChatMessageAvatarAssistant"] {
+        display: none;
+    }
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
         flex-direction: row-reverse;
         text-align: right;
@@ -23,10 +31,113 @@ st.markdown(
         margin-left: auto;
         margin-right: 0;
     }
+    [class*="st-key-session_"] button,
+    [class*="st-key-exam_"] button {
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        justify-content: flex-start;
+        padding-left: 0;
+    }
+    [class*="st-key-session_"] button:hover,
+    [class*="st-key-exam_"] button:hover {
+        background: transparent;
+        opacity: 0.7;
+    }
+    [class*="st-key-session_"] button > div,
+    [class*="st-key-exam_"] button > div {
+        justify-content: flex-start;
+    }
+    [class*="st-key-session_"] button p,
+    [class*="st-key-exam_"] button p {
+        text-align: left;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    [class*="st-key-session_cur_"] button p,
+    [class*="st-key-exam_cur_"] button p {
+        font-weight: 700;
+    }
+    [data-testid="stSidebarUserContent"] > div > [data-testid="stVerticalBlock"] {
+        min-height: calc(100vh - 8rem);
+    }
+    [data-testid="stSidebarContent"],
+    [data-testid="stSidebarUserContent"],
+    [data-testid="stSidebarUserContent"] > div,
+    [data-testid="stSidebarUserContent"] > div > [data-testid="stVerticalBlock"] {
+        background-color: inherit;
+    }
+    [data-testid="stSidebarUserContent"] > div > [data-testid="stVerticalBlock"]
+        > [data-testid="stLayoutWrapper"]:has(> .st-key-profile) {
+        position: sticky;
+        bottom: 0;
+        margin-top: auto;
+        padding: 0.5rem 0;
+        background-color: inherit;
+        z-index: 1;
+    }
+    .st-key-profile button {
+        justify-content: flex-start;
+    }
+    .st-key-profile button::before {
+        content: "";
+        flex: none;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--avatar-image) center / cover no-repeat;
+        margin-right: 0.6rem;
+    }
+    .st-key-profile button p {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+AVATAR_COLORS = ["#E4572E", "#17BEBB", "#7B6CF6", "#F2A541", "#3D9970", "#D6457E"]
+
+
+def avatar_uri(email: str) -> str:
+    """A round avatar image (SVG) showing the first letter of the email name."""
+    name = email.split("@")[0].strip()
+    letter = next((char for char in name if char.isalnum()), "?").upper()
+    color = AVATAR_COLORS[ord(letter) % len(AVATAR_COLORS)]
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" '
+        'viewBox="0 0 64 64">'
+        f'<circle cx="32" cy="32" r="32" fill="{color}"/>'
+        '<text x="32" y="32" text-anchor="middle" dominant-baseline="central" '
+        'font-family="Arial, sans-serif" font-size="30" font-weight="600" '
+        f'fill="#ffffff">{html.escape(letter)}</text></svg>'
+    )
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+
+
+def escape_markdown(text: str) -> str:
+    """Backslash-escape characters that Streamlit's markdown would interpret."""
+    return re.sub(r"([\\`*_\[\]()#~:$<>])", r"\\\1", text)
+
+
+def render_profile_card(email: str):
+    """Bottom-of-sidebar card: round letter avatar and name; click for email + Logout."""
+    name = email.split("@")[0]
+    st.sidebar.markdown(
+        f'<style>.st-key-profile {{ --avatar-image: url("{avatar_uri(email)}"); }}</style>',
+        unsafe_allow_html=True,
+    )
+    with st.sidebar.container(key="profile"):
+        with st.popover(escape_markdown(name), use_container_width=True):
+            st.caption("Signed in as")
+            st.text(email)
+            if st.button("Logout", key="logout", use_container_width=True):
+                logout()
+                st.rerun()
 
 
 # ---------- session state ----------
@@ -215,9 +326,8 @@ def render_history():
         is_current = item["id"] == st.session_state.session_id
         if st.sidebar.button(
             label,
-            key=f"session_{item['id']}",
+            key=f"session_cur_{item['id']}" if is_current else f"session_{item['id']}",
             use_container_width=True,
-            type="primary" if is_current else "secondary",
         ):
             load_session(item["id"])
             st.rerun()
@@ -247,11 +357,11 @@ def render_exam_list():
             status = "not submitted"
         else:
             status = f"{item['percentage']:g}%"
+        is_current = item["id"] == current_id
         if st.sidebar.button(
             f"{item['title']} · {status}",
-            key=f"exam_{item['id']}",
+            key=f"exam_cur_{item['id']}" if is_current else f"exam_{item['id']}",
             use_container_width=True,
-            type="primary" if item["id"] == current_id else "secondary",
         ):
             open_exam(item)
             st.rerun()
@@ -260,10 +370,6 @@ def render_exam_list():
 def render_sidebar():
     st.sidebar.title("📚 ExamPrep AI")
     if st.session_state.token:
-        st.sidebar.caption(f"Logged in as {st.session_state.email}")
-        if st.sidebar.button("Logout", use_container_width=True):
-            logout()
-            st.rerun()
         st.sidebar.radio(
             "Mode",
             ["Chat", "Exam"],
@@ -277,6 +383,7 @@ def render_sidebar():
             render_exam_list()
         else:
             render_history()
+        render_profile_card(st.session_state.email)
     else:
         st.sidebar.info("You are chatting as a guest. History is not saved.")
         if st.sidebar.button("➕ New chat", use_container_width=True):
