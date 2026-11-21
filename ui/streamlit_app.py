@@ -34,7 +34,11 @@ def error_text(response: requests.Response) -> str:
         detail = None
     if isinstance(detail, str):
         return detail
-    if detail:  # 422 validation errors come back as a list
+    if isinstance(detail, list) and detail:  # 422 validation errors come as a list
+        first = detail[0]
+        if isinstance(first, dict) and first.get("msg"):
+            field = str(first["loc"][-1]) if first.get("loc") else "input"
+            return f"{field}: {first['msg']}"
         return "Invalid input. Please check your data."
     return f"Request failed ({response.status_code})"
 
@@ -134,7 +138,9 @@ def auth_dialog():
             password = st.text_input(
                 "Password", type="password", key="register_password"
             )
+            st.caption("Password must be at least 8 characters.")
             submitted = st.form_submit_button("Create account")
+
         if submitted:
             _, error = api_request(
                 "POST", "/auth/register", json={"email": email, "password": password}
