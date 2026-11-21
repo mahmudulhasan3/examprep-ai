@@ -48,6 +48,7 @@ class ExamSummary(BaseModel):
     difficulty: str
     num_questions: int
     created_at: datetime
+    percentage: float | None = None  # None until the exam is submitted
     model_config = {"from_attributes": True}
 
 

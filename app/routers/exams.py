@@ -130,7 +130,24 @@ def list_exams(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user),
 ):
-    return db.query(Exam).filter(Exam.user_id == user_id).order_by(Exam.id.desc()).all()
+    rows = (
+        db.query(Exam, Result.percentage)
+        .outerjoin(Result, Result.exam_id == Exam.id)
+        .filter(Exam.user_id == user_id)
+        .order_by(Exam.id.desc())
+        .all()
+    )
+    return [
+        {
+            "id": exam.id,
+            "title": exam.title,
+            "difficulty": exam.difficulty,
+            "num_questions": exam.num_questions,
+            "created_at": exam.created_at,
+            "percentage": percentage,
+        }
+        for exam, percentage in rows
+    ]
 
 
 @router.get("/{exam_id}", response_model=ExamDetail)
