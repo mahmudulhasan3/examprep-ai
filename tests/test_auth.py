@@ -66,3 +66,27 @@ def test_token_expiry_is_about_30_minutes():
     exp = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])["exp"]
     minutes = (exp - time.time()) / 60
     assert 29 <= minutes <= 31
+
+
+def test_register_rejects_short_password(client):
+    response = client.post(
+        "/auth/register",
+        json={"email": "short@example.com", "password": "1234567"},
+    )
+    assert response.status_code == 422
+
+
+def test_register_accepts_password_of_exactly_8_characters(client):
+    response = client.post(
+        "/auth/register",
+        json={"email": "eight@example.com", "password": "12345678"},
+    )
+    assert response.status_code == 200
+
+
+def test_register_rejects_overlong_password(client):
+    response = client.post(
+        "/auth/register",
+        json={"email": "long@example.com", "password": "a" * 129},
+    )
+    assert response.status_code == 422
