@@ -13,7 +13,10 @@ from app.db.database import get_db
 from app.core.security import get_current_user
 from sqlalchemy.orm import Session
 from app.db.models import ChatSession, ChatMessage
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat")
 
@@ -34,7 +37,8 @@ def guest(request: ChatRequest):
     try:
         reply = generate_chat_response(history)
     except Exception:
-        history.pop()  
+        logger.exception("Guest chat: Gemini call failed")
+        history.pop()  # remove the failed user message so the history stays clean
         raise HTTPException(
             status_code=502, detail="AI service is unavailable. Try again."
         )
@@ -66,6 +70,8 @@ def authenticated_chat(
         if session is None:
             raise HTTPException(status_code=404, detail="Chat session not found")
     else:
+        # Title is the start of the first message. flush() gives us an id without
+        # committing, so a failed AI call leaves no empty session in the database.
         session = ChatSession(user_id=user_id, title=request.message.strip()[:50])
         db.add(session)
         db.flush()
@@ -76,9 +82,11 @@ def authenticated_chat(
 
     history.append({"role": "user", "content": request.message})
 
+    # Call the AI first; save both messages only if it succeeds
     try:
         reply = generate_chat_response(history)
     except Exception:
+        logger.exception("Authenticated chat: Gemini call failed")
         raise HTTPException(
             status_code=502, detail="AI service is unavailable. Try again."
         )

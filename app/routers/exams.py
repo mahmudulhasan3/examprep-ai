@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,8 @@ from app.core.security import get_current_user
 from app.db.database import get_db
 from app.db.models import Exam, Question
 from app.schemas.exam import ExamCreateRequest, ExamDetail, ExamSummary
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/exams", tags=["Exams"])
 
@@ -34,6 +38,7 @@ def create_exam(
             request.topic.strip(), request.num_questions, request.difficulty
         )
     except Exception:
+        logger.exception("Exam generation failed")
         raise HTTPException(
             status_code=502, detail="AI service is unavailable. Try again."
         )
