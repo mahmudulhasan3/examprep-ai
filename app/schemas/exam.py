@@ -1,7 +1,13 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
+
+MAX_SCORE_PER_QUESTION = 10
+
+AnswerText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)
+]
 
 
 class ExamCreateRequest(BaseModel):
@@ -43,3 +49,46 @@ class ExamSummary(BaseModel):
     num_questions: int
     created_at: datetime
     model_config = {"from_attributes": True}
+
+
+class AnswerIn(BaseModel):
+    question_id: int
+    answer_text: AnswerText
+
+
+class SubmitRequest(BaseModel):
+    answers: list[AnswerIn] = Field(min_length=1)
+
+
+class GradedAnswer(BaseModel):
+    """One graded answer as produced by the AI. Part of the structured-output schema."""
+
+    question_id: int
+    score: int
+    feedback: str
+
+
+class GradingResult(BaseModel):
+    graded: list[GradedAnswer]
+    overall_feedback: str
+
+
+class AnswerResultOut(BaseModel):
+    """After submission the model answer is revealed, so the student can learn from it."""
+
+    question_id: int
+    question_text: str
+    user_answer: str
+    model_answer: str
+    score: int
+    feedback: str
+
+
+class ExamResultOut(BaseModel):
+    exam_id: int
+    title: str
+    total_score: int
+    max_score: int
+    percentage: float
+    overall_feedback: str
+    answers: list[AnswerResultOut]
