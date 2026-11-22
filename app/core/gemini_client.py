@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -18,7 +20,7 @@ client = genai.Client(api_key=api_key)
 model_name = get_env_variable("GEMINI_MODEL_NAME")
 
 
-def generate_chat_response(history: list):
+def to_gemini_history(history: list) -> list:
     gemini_history = []
     for msg in history:
         if msg["role"] == "assistant":
@@ -27,9 +29,24 @@ def generate_chat_response(history: list):
             new_role = msg["role"]
 
         gemini_history.append({"role": new_role, "parts": [{"text": msg["content"]}]})
+    return gemini_history
 
-    response = client.models.generate_content(model=model_name, contents=gemini_history)
+
+def generate_chat_response(history: list):
+    response = client.models.generate_content(
+        model=model_name, contents=to_gemini_history(history)
+    )
     return response.text
+
+
+def stream_chat_response(history: list) -> Iterator[str]:
+    """Yield the reply piece by piece as Gemini produces it."""
+    stream = client.models.generate_content_stream(
+        model=model_name, contents=to_gemini_history(history)
+    )
+    for chunk in stream:
+        if chunk.text:
+            yield chunk.text
 
 
 def generate_exam_questions(
