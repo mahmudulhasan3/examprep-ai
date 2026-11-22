@@ -151,6 +151,10 @@ def init_state():
         "session_id": None,  # str (uuid) for guests, int for logged-in users
         "exam": None,  # the exam being taken (questions only)
         "exam_result": None,  # the graded result being viewed
+        "pending_email": None,  # sign-up waiting for its email code
+        "register_done": None,  # email that just finished verification
+        "show_forgot": False,  # login tab shows the "forgot password" form
+        "reset_done": False,  # a password reset just succeeded
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -299,49 +303,134 @@ def stream_message(text: str) -> str | None:
 
 
 # ---------- sidebar ----------
-@st.dialog("Welcome to ExamPrep AI")
-def auth_dialog():
-    """Popup with Login and Register tabs, opened from the sidebar Login button."""
-    login_tab, register_tab = st.tabs(["Login", "Register"])
+def render_login_tab():
+    if st.session_state.show_forgot:
+        render_forgot_form()
+        return
 
-    with login_tab:
-        with st.form("login_form"):
-            email = st.text_input("Email", key="login_email")
-            password = st.text_input("Password", type="password", key="login_password")
-            submitted = st.form_submit_button("Login")
-        if submitted:
+    with st.form("login_form"):
+        email = st.text_input("Email", key="login_email")
+        password = st.text_input("Password", type="password", key="login_password")
+        submitted = st.form_submit_button("Login")
+    if submitted:
+        response, error = api_request(
+            "POST", "/auth/login", json={"email": email, "password": password}
+        )
+        if response is None:
+            st.error(error)
+        else:
+            st.session_state.token = response.json()["access_token"]
+            st.session_state.email = email
+            new_chat()  # guest chat is separate, start fresh after login
+            st.rerun()  # rerun the whole app, which also closes the dialog
+
+    if st.button("Forgot password?", key="forgot_open", type="tertiary"):
+        st.session_state.show_forgot = True
+        st.rerun(scope="fragment")
+
+
+def render_forgot_form():
+    st.markdown("**Reset your password**")
+    st.caption("Enter your account email and we will send you a reset link.")
+    with st.form("forgot_form"):
+        email = st.text_input("Email", key="forgot_email")
+        submitted = st.form_submit_button("Send reset link")
+    if submitted:
+        if not email.strip():
+            st.warning("Please enter your email.")
+        else:
             response, error = api_request(
-                "POST", "/auth/login", json={"email": email, "password": password}
+                "POST", "/auth/forgot-password", json={"email": email.strip()}
             )
             if response is None:
                 st.error(error)
             else:
-                st.session_state.token = response.json()["access_token"]
-                st.session_state.email = email
-                new_chat()  # guest chat is separate, start fresh after login
-                st.rerun()  # rerun the whole app, which also closes the dialog
+                st.success(response.json()["message"])
 
-    with register_tab:
-        with st.form("register_form"):
-            email = st.text_input("Email", key="register_email")
-            password = st.text_input(
-                "Password", type="password", key="register_password"
+    if st.button("Back to login", key="forgot_back", type="tertiary"):
+        st.session_state.show_forgot = False
+        st.rerun(scope="fragment")
+
+
+def render_register_tab():
+    if st.session_state.register_done:
+        st.success(
+            f"{st.session_state.register_done} is verified and your account is ready. "
+            "A welcome email is on its way. Please log in from the Login tab."
+        )
+        if st.button("Create another account", key="register_again", type="tertiary"):
+            st.session_state.register_done = None
+            st.rerun(scope="fragment")
+        return
+
+    if st.session_state.pending_email:
+        render_otp_step()
+        return
+
+    with st.form("register_form"):
+        email = st.text_input("Email", key="register_email")
+        password = st.text_input("Password", type="password", key="register_password")
+        confirm = st.text_input(
+            "Confirm password", type="password", key="register_confirm"
+        )
+        st.caption("Password must be at least 8 characters.")
+        submitted = st.form_submit_button("Create account")
+    if submitted and password != confirm:
+        st.error("Passwords do not match.")
+    elif submitted:
+        response, error = api_request(
+            "POST", "/auth/register", json={"email": email, "password": password}
+        )
+        if response is None:
+            st.error(error)
+        elif response.status_code == 202:  # a code was emailed, waiting for it
+            st.session_state.pending_email = email
+            st.rerun(scope="fragment")
+        else:  # email verification is switched off on the server
+            st.success("Account created. Now switch to the Login tab.")
+
+
+def render_otp_step():
+    email = st.session_state.pending_email
+    st.info(f"We sent a 6-digit code to {email}. It expires in 10 minutes.")
+    with st.form("otp_form"):
+        otp = st.text_input("6-digit code", max_chars=6, key="otp_code")
+        submitted = st.form_submit_button("Verify email")
+    if submitted:
+        code = otp.strip()
+        if not (code.isdigit() and len(code) == 6):
+            st.warning("Please enter the 6-digit code from your email.")
+        else:
+            response, error = api_request(
+                "POST", "/auth/verify-email", json={"email": email, "otp": code}
             )
-            confirm = st.text_input(
-                "Confirm password", type="password", key="register_confirm"
-            )
-            st.caption("Password must be at least 8 characters.")
-            submitted = st.form_submit_button("Create account")
-        if submitted and password != confirm:
-            st.error("Passwords do not match.")
-        elif submitted:
-            _, error = api_request(
-                "POST", "/auth/register", json={"email": email, "password": password}
-            )
-            if error:
+            if response is None:
                 st.error(error)
             else:
-                st.success("Account created. Now switch to the Login tab.")
+                st.session_state.register_done = email
+                st.session_state.pending_email = None
+                st.rerun(scope="fragment")
+
+    left, right = st.columns(2)
+    if left.button("Resend code", key="otp_resend", use_container_width=True):
+        response, error = api_request("POST", "/auth/resend-otp", json={"email": email})
+        if response is None:
+            st.error(error)
+        else:
+            st.success(response.json()["message"])
+    if right.button("Use another email", key="otp_other", use_container_width=True):
+        st.session_state.pending_email = None
+        st.rerun(scope="fragment")
+
+
+@st.dialog("Welcome to ExamPrep AI")
+def auth_dialog():
+    """Popup with Login and Register tabs, opened from the sidebar Login button."""
+    login_tab, register_tab = st.tabs(["Login", "Register"])
+    with login_tab:
+        render_login_tab()
+    with register_tab:
+        render_register_tab()
 
 
 def render_history():
@@ -558,8 +647,42 @@ def render_exam_mode():
         render_exam_creator()
 
 
+def render_reset_password(token: str):
+    """Page opened from the link in the reset email."""
+    st.title("Reset your password")
+    st.caption("Choose a new password for your account.")
+    with st.form("reset_form"):
+        new_password = st.text_input("New password", type="password", key="reset_new")
+        confirm = st.text_input(
+            "Confirm new password", type="password", key="reset_confirm"
+        )
+        st.caption("Password must be at least 8 characters.")
+        submitted = st.form_submit_button("Reset password")
+    if submitted and new_password != confirm:
+        st.error("Passwords do not match.")
+    elif submitted:
+        response, error = api_request(
+            "POST",
+            "/auth/reset-password",
+            json={"token": token, "new_password": new_password},
+        )
+        if response is None:
+            st.error(error)
+        else:
+            st.session_state.reset_done = True
+            st.query_params.clear()  # drop the token from the address bar
+            st.rerun()
+
+
 render_sidebar()
-if st.session_state.token and st.session_state.mode == "Exam":
-    render_exam_mode()
+reset_token = st.query_params.get("reset_token")
+if reset_token:
+    render_reset_password(reset_token)
 else:
-    render_chat()
+    if st.session_state.reset_done:
+        st.session_state.reset_done = False
+        st.success("Your password was updated. Please log in with the new password.")
+    if st.session_state.token and st.session_state.mode == "Exam":
+        render_exam_mode()
+    else:
+        render_chat()

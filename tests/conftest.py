@@ -46,6 +46,13 @@ def clean_tables():
 
 @pytest.fixture(autouse=True)
 def mock_gemini(monkeypatch):
+    """Block real Gemini calls in every test and return a fake reply."""
     monkeypatch.setattr(
         "app.routers.chat.generate_chat_response", lambda history: "mock reply"
     )
+
+
+@pytest.fixture(autouse=True)
+def no_email_verification(monkeypatch):
+    """Most tests register users directly; the email-code tests switch this back on."""
+    monkeypatch.setenv("EMAIL_VERIFICATION", "false")
