@@ -15,7 +15,7 @@ def read_api_url() -> str:
     try:
         value = st.secrets["EXAMPREP_API_URL"]
     except Exception:  # no secrets file, or the key is missing
-        value = os.getenv("EXAMPREP_API_URL", "http://127.0.0.1:8000")
+        value = os.getenv("EXAMPREP_API_URL", "https://examprep-ai-5n25.onrender.com")
     return str(value).strip().rstrip("/")
 
 
