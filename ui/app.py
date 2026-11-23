@@ -536,7 +536,7 @@ def render_sidebar():
 
 # ---------- chat mode ----------
 def render_chat():
-    st.title("Study Assistant")
+    st.title("ExamPrep AI")
     if not st.session_state.messages:
         st.caption("Ask anything about your subject to get started.")
 
