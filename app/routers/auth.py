@@ -14,6 +14,7 @@ from app.core.email_service import (
     send_email,
 )
 from app.core.env_utils import get_optional_env_variable
+from app.core.rate_limit import check_rate_limit
 from app.core.security import hash_password, verify_password, create_token_access
 from app.core.verification import (
     OTP_MAX_ATTEMPTS,
@@ -49,6 +50,17 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 if not email_verification_enabled():
     logger.warning("EMAIL_VERIFICATION is off: new accounts skip the email code.")
+
+
+# Brevo's free plan has a small daily email allowance, so sending is capped overall
+# (all users together) and per address.
+EMAIL_SENDS_PER_HOUR = 30
+EMAILS_PER_ADDRESS = 5
+
+
+def limit_email_sending(email: str, bucket: str) -> None:
+    check_rate_limit(bucket, email.lower(), EMAILS_PER_ADDRESS, 600)
+    check_rate_limit("email-send", "all", EMAIL_SENDS_PER_HOUR, 3600)
 
 
 def app_base_url() -> str:
@@ -107,6 +119,8 @@ def register(
         db.refresh(new_user)
         return new_user
 
+    limit_email_sending(user_data.email, "register")
+
     now = utcnow()
     pending = (
         db.query(PendingRegistration)
@@ -151,6 +165,8 @@ def verify_email(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
+    check_rate_limit("verify", data.email.lower(), 15, 600)
+
     pending = (
         db.query(PendingRegistration)
         .filter(PendingRegistration.email == data.email)
@@ -200,6 +216,8 @@ def verify_email(
 
 @router.post("/resend-otp", response_model=PendingRegistrationResponse)
 def resend_otp(data: ResendOtpRequest, db: Session = Depends(get_db)):
+    limit_email_sending(data.email, "resend")
+
     pending = (
         db.query(PendingRegistration)
         .filter(PendingRegistration.email == data.email)
@@ -228,6 +246,8 @@ def resend_otp(data: ResendOtpRequest, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 def login(user_data: UserLoginRequest, db: Session = Depends(get_db)):
+    check_rate_limit("login", user_data.email.lower(), 10, 600)
+
     user = db.query(User).filter(User.email == user_data.email).first()
     if not user:
         raise HTTPException(
@@ -244,6 +264,9 @@ def login(user_data: UserLoginRequest, db: Session = Depends(get_db)):
 def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
     if not email_is_configured():
         raise HTTPException(status_code=503, detail="Email service is not configured.")
+
+    # Counted before the user lookup, so the answer never reveals if the email exists.
+    limit_email_sending(data.email, "forgot")
 
     # The same answer whether or not the email exists, so nobody can probe for accounts.
     generic = {"message": "If this email is registered, a reset link has been sent."}

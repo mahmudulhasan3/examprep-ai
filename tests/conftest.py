@@ -4,6 +4,7 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
+from app.core.rate_limit import reset_rate_limits
 from app.db.database import Base, get_db
 from app.main import app
 
@@ -56,3 +57,10 @@ def mock_gemini(monkeypatch):
 def no_email_verification(monkeypatch):
     """Most tests register users directly; the email-code tests switch this back on."""
     monkeypatch.setenv("EMAIL_VERIFICATION", "false")
+
+
+@pytest.fixture(autouse=True)
+def no_rate_limit(monkeypatch):
+    """Rate limits are off in most tests; test_rate_limit.py turns them on."""
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
+    reset_rate_limits()

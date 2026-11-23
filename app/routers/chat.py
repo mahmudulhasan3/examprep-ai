@@ -7,7 +7,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.gemini_client import generate_chat_response, stream_chat_response
-from app.core.memory_store import guest_sessions
+from app.core.memory_store import guest_sessions, save_guest_history
+from app.core.rate_limit import check_rate_limit
 from app.core.security import get_current_user
 from app.db.database import get_db
 from app.db.models import ChatMessage, ChatSession
@@ -25,6 +26,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat")
 
 AI_UNAVAILABLE = "AI service is unavailable. Try again."
+
+# All guests together may send this many messages per minute (protects the Gemini quota).
+GUEST_MESSAGES_PER_MINUTE = 30
 
 
 def get_or_create_session(
@@ -106,33 +110,28 @@ def stream_events(first, stream, on_complete, on_abort):
 
 @router.post("/guest", response_model=ChatResponse, tags=["Guest Chat"])
 def guest(request: ChatRequest):
+    check_rate_limit("guest-chat", "all-guests", GUEST_MESSAGES_PER_MINUTE, 60)
 
-    if request.session_id:
-        session_id = request.session_id
+    session_id = request.session_id or str(uuid.uuid4())
 
-    else:
-        session_id = str(uuid.uuid4())
-
-    history = guest_sessions.get(session_id, [])
-
+    history = list(guest_sessions.get(session_id, []))
     history.append({"role": "user", "content": request.message})
 
     try:
         reply = generate_chat_response(history)
     except Exception:
         logger.exception("Guest chat: Gemini call failed")
-        history.pop()  # remove the failed user message so the history stays clean
         raise HTTPException(status_code=502, detail=AI_UNAVAILABLE)
 
-    history.append({"role": "assistant", "content": reply})
-
-    guest_sessions[session_id] = history
+    save_guest_history(session_id, history + [{"role": "assistant", "content": reply}])
 
     return {"session_id": session_id, "reply": reply}
 
 
 @router.post("/guest/stream", tags=["Guest Chat"])
 def guest_stream(request: ChatRequest):
+    check_rate_limit("guest-chat", "all-guests", GUEST_MESSAGES_PER_MINUTE, 60)
+
     session_id = request.session_id or str(uuid.uuid4())
     history = list(guest_sessions.get(session_id, []))
     history.append({"role": "user", "content": request.message})
@@ -140,7 +139,9 @@ def guest_stream(request: ChatRequest):
     first, stream = open_stream(history)
 
     def on_complete(reply: str):
-        guest_sessions[session_id] = history + [{"role": "assistant", "content": reply}]
+        save_guest_history(
+            session_id, history + [{"role": "assistant", "content": reply}]
+        )
 
     return StreamingResponse(
         stream_events(first, stream, on_complete, lambda: None),

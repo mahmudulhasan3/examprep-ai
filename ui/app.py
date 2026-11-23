@@ -7,10 +7,21 @@ import re
 import requests
 import streamlit as st
 
-API_URL = os.getenv("EXAMPREP_API_URL", "http://127.0.0.1:8000")
-TIMEOUT = 90  # Gemini can take a while to reply
+TIMEOUT = 90  # a sleeping free-tier server can take up to a minute to wake up
+
+
+def read_api_url() -> str:
+    """Where the API lives: Streamlit secrets when deployed, otherwise the environment."""
+    try:
+        value = st.secrets["EXAMPREP_API_URL"]
+    except Exception:  # no secrets file, or the key is missing
+        value = os.getenv("EXAMPREP_API_URL", "http://127.0.0.1:8000")
+    return str(value).strip().rstrip("/")
+
 
 st.set_page_config(page_title="ExamPrep AI", page_icon="📚", layout="wide")
+
+API_URL = read_api_url()
 
 # Layout tweaks: user messages on the right and AI messages on the left (no avatar
 # icons), plain history items without background or border, and a profile card.
@@ -265,7 +276,10 @@ def stream_message(text: str) -> str | None:
         path = "/chat/guest/stream"
     payload = {"message": text, "session_id": st.session_state.session_id}
 
-    response, error = api_request("POST", path, json=payload, stream=True)
+    with st.spinner(
+        "Thinking... (if the server was asleep, the first reply can take up to a minute)"
+    ):
+        response, error = api_request("POST", path, json=payload, stream=True)
     if response is None:
         return error
     response.encoding = "utf-8"
