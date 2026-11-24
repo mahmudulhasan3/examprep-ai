@@ -1,0 +1,15 @@
+# Never put secrets or local clutter into an image.
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+*.db
+.DS_Store
+README.md
+docs
