@@ -723,6 +723,10 @@ CSE Student | Aspiring Generative AI Engineer
 
 ---
 
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
 <div align="center">
 
 **Built with Python, FastAPI, PostgreSQL, and Google Gemini.**
@@ -730,3 +734,4 @@ CSE Student | Aspiring Generative AI Engineer
 [⬆ Back to Top](#-examprep-ai)
 
 </div>
+
